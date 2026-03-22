@@ -1,0 +1,59 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+
+permissions:
+    contents: read
+
+jobs:
+    test:
+        name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }}
+        runs-on: ubuntu-latest
+
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - php: "8.2"
+                      laravel: "11.*"
+                      testbench: "9.*"
+                    - php: "8.2"
+                      laravel: "12.*"
+                      testbench: "10.*"
+                    - php: "8.3"
+                      laravel: "11.*"
+                      testbench: "9.*"
+                    - php: "8.3"
+                      laravel: "12.*"
+                      testbench: "10.*"
+                    - php: "8.3"
+                      laravel: "13.*"
+                      testbench: "11.*"
+                    - php: "8.4"
+                      laravel: "12.*"
+                      testbench: "10.*"
+                    - php: "8.4"
+                      laravel: "13.*"
+                      testbench: "11.*"
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup PHP ${{ matrix.php }}
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: ${{ matrix.php }}
+                  extensions: dom, curl, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite
+                  coverage: none
+
+            - name: Install dependencies
+              run: |
+                  composer require "illuminate/support:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
+                  composer update --prefer-dist --no-interaction --no-progress
+
+            - name: Run tests
+              run: php vendor/bin/phpunit --no-coverage

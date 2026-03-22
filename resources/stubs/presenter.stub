@@ -1,0 +1,33 @@
+<?php
+
+namespace {{ namespace }};
+
+use Vinkius\Vurb\Presenters\VurbPresenter;
+
+class {{ class }} extends VurbPresenter
+{
+    public function toArray($request): array
+    {
+        return [
+            'id' => $this->id,
+            // TODO: Define your resource fields
+        ];
+    }
+
+    public function systemRules(): array
+    {
+        return [
+            // 'Always display the name in bold.',
+        ];
+    }
+
+    public function uiBlocks(): array
+    {
+        return [];
+    }
+
+    public function suggestActions(): array
+    {
+        return [];
+    }
+}

@@ -1,0 +1,17 @@
+<?php
+
+namespace {{ namespace }};
+
+use Vinkius\Vurb\Attributes\Description;
+use Vinkius\Vurb\Attributes\Param;
+use Vinkius\Vurb\Tools\VurbQuery;
+
+#[Description('{{ description }}')]
+class {{ class }} extends VurbQuery
+{
+    public function handle(): mixed
+    {
+        // TODO: Implement read-only tool logic
+        return [];
+    }
+}

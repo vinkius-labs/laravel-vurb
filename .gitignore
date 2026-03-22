@@ -1,0 +1,47 @@
+# Dependencies
+vendor/
+node_modules/
+
+# Composer lock (not committed for packages)
+composer.lock
+
+# PHPUnit
+.phpunit.cache/
+.phpunit.result.cache
+
+# Coverage reports
+coverage-report/
+coverage-report.txt
+
+# IDE and editor files
+.idea/
+.vscode/
+.gemini/
+.agents/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Dev helper scripts
+check-classes.php
+parse-coverage.php
+parse-single-cov.php
+
+# Docker (dev-only)
+Dockerfile
+
+# Node.js daemon lock file (installed at runtime)
+bin/daemon/package-lock.json

@@ -1,0 +1,17 @@
+<?php
+
+namespace {{ namespace }};
+
+use Vinkius\Vurb\Attributes\Description;
+use Vinkius\Vurb\Attributes\Param;
+use Vinkius\Vurb\Tools\VurbMutation;
+
+#[Description('{{ description }}')]
+class {{ class }} extends VurbMutation
+{
+    public function handle(): mixed
+    {
+        // TODO: Implement write/destructive tool logic
+        return [];
+    }
+}

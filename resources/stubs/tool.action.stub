@@ -1,0 +1,17 @@
+<?php
+
+namespace {{ namespace }};
+
+use Vinkius\Vurb\Attributes\Description;
+use Vinkius\Vurb\Attributes\Param;
+use Vinkius\Vurb\Tools\VurbAction;
+
+#[Description('{{ description }}')]
+class {{ class }} extends VurbAction
+{
+    public function handle(): mixed
+    {
+        // TODO: Implement side-effect tool logic
+        return [];
+    }
+}

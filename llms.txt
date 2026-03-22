@@ -1,0 +1,947 @@
+# Laravel Vurb
+
+> Laravel Vurb is the PHP bridge that transforms any Laravel application into a production MCP Server — zero TypeScript. MVA architecture, Presenters as egress firewalls, PHP 8.2 Attributes, Eloquent Model Bridge, FSM State Gates, DLP Redaction, full Governance Stack. Powered by Vurb.ts under the hood.
+
+## What is Laravel Vurb?
+
+Laravel Vurb is a PHP package by Vinkius Labs that bridges the Laravel ecosystem to the Model Context Protocol (MCP) via the **MVA (Model-View-Agent)** pattern. Instead of rewriting business logic in TypeScript, you write PHP classes with typed parameters, decorate them with attributes, and the framework compiles everything into a Schema Manifest consumed by a lightweight Vurb.ts daemon. The daemon speaks MCP natively — Claude, Cursor, GitHub Copilot, Windsurf, and every MCP-compatible AI client connect instantly.
+
+**Philosophy:** *Zero TypeScript for the developer. 100% of Vurb.ts under the hood.*
+
+## ⚠️ Namespace Reference — ALWAYS use these exact imports
+
+**Package root namespace:** `Vinkius\Vurb\`
+
+Every class in this package lives under `Vinkius\Vurb\`. Never abbreviate to `Vurb\` alone.
+
+### Base Classes (extend these)
+
+```
+use Vinkius\Vurb\Tools\VurbTool;            // Generic tool
+use Vinkius\Vurb\Tools\VurbQuery;           // Read-only tool (readOnly: true)
+use Vinkius\Vurb\Tools\VurbMutation;        // Destructive tool
+use Vinkius\Vurb\Tools\VurbAction;          // Neutral tool
+use Vinkius\Vurb\Tools\VurbRouter;          // Group tools with prefix + middleware
+use Vinkius\Vurb\Presenters\VurbPresenter;  // Egress firewall (extends JsonResource)
+use Vinkius\Vurb\Middleware\VurbMiddleware;  // Tool middleware interface
+```
+
+### Attributes (decorate classes/params)
+
+```
+use Vinkius\Vurb\Attributes\Param;          // Parameter schema
+use Vinkius\Vurb\Attributes\Tool;           // Class-level name/desc override
+use Vinkius\Vurb\Attributes\Description;    // Description override
+use Vinkius\Vurb\Attributes\Instructions;   // Anti-hallucination rules
+use Vinkius\Vurb\Attributes\Tags;           // Capability filtering
+use Vinkius\Vurb\Attributes\Presenter;      // Link tool → Presenter
+use Vinkius\Vurb\Attributes\Query;          // Verb attribute (alt to subclass)
+use Vinkius\Vurb\Attributes\Cached;         // State Sync caching
+use Vinkius\Vurb\Attributes\Stale;          // Always refetch
+use Vinkius\Vurb\Attributes\Invalidates;    // Mutation invalidation
+use Vinkius\Vurb\Attributes\FsmBind;        // FSM state restriction
+use Vinkius\Vurb\Attributes\Hidden;         // Exclude param from schema
+use Vinkius\Vurb\Attributes\AgentLimit;     // Truncation guardrails
+use Vinkius\Vurb\Attributes\Concurrency;    // Max parallel executions
+```
+
+### Support Classes
+
+```
+use Vinkius\Vurb\Models\Concerns\HasVurbSchema;   // Eloquent trait
+use Vinkius\Vurb\Models\ModelRegistry;             // Model registration
+use Vinkius\Vurb\Facades\Vurb;                     // Facade
+use Vinkius\Vurb\Testing\FakeVurbTester;           // In-process testing
+use Vinkius\Vurb\Governance\ContractCompiler;      // Lockfile governance
+use Vinkius\Vurb\Skills\SkillsRegistry;            // SKILL.md registry
+use Vinkius\Vurb\Middleware\AuditTrail;             // Built-in: logging
+use Vinkius\Vurb\Middleware\RateLimitVurb;          // Built-in: rate limiting
+use Vinkius\Vurb\Middleware\RequirePermission;      // Built-in: authorization
+```
+
+### User Application Namespace Convention
+
+Tool classes go in `app/Vurb/Tools/` → `namespace App\Vurb\Tools;`
+Presenters go in `app/Vurb/Presenters/` → `namespace App\Vurb\Presenters;`
+Subdomain tools go in `app/Vurb/Tools/Crm/` → `namespace App\Vurb\Tools\Crm;`
+Custom middleware go in `app/Vurb/Middleware/` → `namespace App\Vurb\Middleware;`
+
+## Core Architecture: MVA (Model-View-Agent)
+
+```
+Model (Eloquent + HasVurbSchema) → View (VurbPresenter) → Agent (LLM)
+   validates                        perceives               acts
+```
+
+The Model is any Eloquent model with the `HasVurbSchema` trait — its casts, hidden fields, fillable profiles, and descriptions become the domain schema. The Presenter (`VurbPresenter`) extends Laravel's `JsonResource` and adds `systemRules()`, `uiBlocks()`, and `suggestActions()` — the AI perception layer. Tools are PHP classes that extend `VurbTool` and implement `handle()` with typed parameters that auto-compile to JSON Schema.
+
+## Bridge Architecture
+
+```
+┌──────────────┐       ┌──────────────┐       ┌──────────────┐
+│  AI Client   │  MCP  │  Vurb.ts     │  HTTP  │  Laravel App │
+│  (Cursor,    │◄─────►│  Daemon      │◄──────►│  (Tools,     │
+│   Claude)    │ stdio │  (npx tsx)   │  JSON  │   Presenters)│
+└──────────────┘       └──────────────┘       └──────────────┘
+```
+
+The daemon reads a compiled Schema Manifest from PHP tool definitions and proxies every tool call back to Laravel over HTTP at `/_vurb/*` endpoints. All endpoints are protected by `X-Vurb-Token` with timing-safe comparison.
+
+## Installation
+
+```bash
+composer require vinkius-labs/laravel-vurb
+php artisan vurb:install
+```
+
+The installer publishes config, creates `app/Vurb/Tools/`, `app/Vurb/Middleware/`, `app/Vurb/Presenters/`, installs the Node.js daemon dependencies (via `npm install` in `bin/daemon/`), generates `VURB_INTERNAL_TOKEN` in `.env`, and runs migrations.
+
+## Project Structure
+
+```
+app/Vurb/
+├── Tools/                    ← Tool classes (VurbTool, VurbQuery, VurbMutation, VurbAction)
+│   ├── Router.php            ← Optional top-level router
+│   ├── GetCustomerProfile.php
+│   ├── Crm/
+│   │   ├── Router.php        ← Namespace router (prefix: 'crm', shared middleware)
+│   │   ├── GetLead.php
+│   │   └── UpdateLead.php
+│   └── Billing/
+│       ├── Router.php
+│       └── GetInvoice.php
+├── Presenters/               ← VurbPresenter classes (extends JsonResource)
+│   ├── CustomerPresenter.php
+│   └── InvoicePresenter.php
+├── Middleware/                ← VurbMiddleware implementations
+│   └── RequireCrmAccess.php
+└── Skills/                   ← SKILL.md files for AI agent capabilities
+    └── laravel-vurb-development/
+        └── SKILL.md
+```
+
+## VurbTool — The Base Tool Class
+
+Every tool extends `VurbTool` and implements `handle()` with typed parameters. Typed primitive parameters become the tool's JSON Schema input. Non-primitive type hints are resolved from Laravel's service container (dependency injection).
+
+```php
+namespace App\Vurb\Tools;
+
+use Vinkius\Vurb\Attributes\Param;
+use Vinkius\Vurb\Tools\VurbTool;
+
+class GetCustomerProfile extends VurbTool
+{
+    public function description(): string
+    {
+        return 'Retrieve a customer profile by ID.';
+    }
+
+    public function verb(): string
+    {
+        return 'query';
+    }
+
+    public function handle(
+        #[Param(description: 'The customer ID', example: 42)]
+        int $id,
+    ): array {
+        return \App\Models\Customer::findOrFail($id)->toArray();
+    }
+}
+```
+
+### VurbTool Methods
+
+| Method | Return | Purpose |
+|---|---|---|
+| `name(): string` | Tool name | Auto-inferred from class name. Override to set custom name. |
+| `description(): string` | Description | **Required.** LLM-facing description of what the tool does. |
+| `instructions(): ?string` | Instructions | Anti-hallucination instructions injected as `[INSTRUCTIONS]`. |
+| `tags(): array` | Tags | Capability filtering labels. |
+| `verb(): string` | Verb | `'query'` (readOnly), `'mutation'` (destructive), `'action'` (neutral). |
+| `$middleware: array` | Middleware | Per-tool middleware class names. |
+| `inferNameFromClass(): string` | Name | `GetCustomerProfile` → `customers.get_profile`. |
+
+### Semantic Verb Subclasses
+
+| Class | Verb | Annotations |
+|---|---|---|
+| `VurbQuery` | `query` | `readOnly: true`, `idempotent: true` |
+| `VurbMutation` | `mutation` | `destructive: true` |
+| `VurbAction` | `action` | No defaults (neutral) |
+
+### Name Inference
+
+Tool names are auto-inferred from the class name by extracting verb prefixes and pluralizing the subject:
+
+| Class Name | Inferred Name |
+|---|---|
+| `GetCustomerProfile` | `customers.get_profile` |
+| `CreateInvoice` | `invoices.create` |
+| `ListOrders` | `orders.list` |
+| `SearchProducts` | `products.search` |
+| `ProcessPayment` | `payments.process` |
+| `SendNotification` | `notifications.send` |
+
+Recognized verb prefixes: `Get`, `List`, `Search`, `Create`, `Update`, `Delete`, `Remove`, `Activate`, `Deactivate`, `Process`, `Send`, `Cancel`, `Approve`, `Reject`.
+
+Override: `public function name(): string { return 'my.custom_name'; }`
+
+### Dependency Injection in handle()
+
+Non-primitive type hints are resolved from Laravel's service container. Only primitive types (`int`, `string`, `float`, `bool`, `array`) become part of the JSON Schema input:
+
+```php
+public function handle(
+    int $id,                                    // ← input schema parameter
+    \App\Services\CrmGateway $crm,              // ← injected by container
+    \Illuminate\Cache\Repository $cache,        // ← injected by container
+): array {
+    return $cache->remember("customer.{$id}", 60, fn () => $crm->find($id));
+}
+```
+
+## PHP Attributes — Full Reference
+
+### @Tool — Class-level override
+
+```php
+use Vinkius\Vurb\Attributes\Tool;
+
+#[Tool(name: 'custom.tool_name', description: 'Override description')]
+class MyTool extends VurbTool { }
+```
+
+| Parameter | Type | Purpose |
+|---|---|---|
+| `name` | `?string` | Override auto-inferred name |
+| `description` | `?string` | Override `description()` method |
+
+### @Param — Parameter-level schema
+
+```php
+use Vinkius\Vurb\Attributes\Param;
+
+public function handle(
+    #[Param(description: 'The customer ID', example: 42)]
+    int $id,
+
+    #[Param(description: 'Filter by status', items: ['active', 'inactive'])]
+    ?string $status = null,
+): array { }
+```
+
+| Parameter | Type | Purpose |
+|---|---|---|
+| `description` | `?string` | Parameter description for JSON Schema |
+| `example` | `mixed` | Example value for the LLM |
+| `items` | `string\|array\|null` | Enum items for string parameters |
+
+### @Description — Class/Method/Property description
+
+```php
+use Vinkius\Vurb\Attributes\Description;
+
+#[Description('Deep search across all customer records')]
+class SearchCustomers extends VurbTool { }
+```
+
+### @Instructions — Anti-hallucination
+
+```php
+use Vinkius\Vurb\Attributes\Instructions;
+
+#[Instructions('Only call when the user explicitly asks for a customer lookup. Never infer IDs.')]
+class SearchCustomers extends VurbTool { }
+```
+
+### @Tags — Capability filtering
+
+```php
+use Vinkius\Vurb\Attributes\Tags;
+
+#[Tags('crm', 'search', 'public')]
+class SearchCustomers extends VurbTool { }
+```
+
+### @Presenter — Link tool to Presenter
+
+```php
+use Vinkius\Vurb\Attributes\Presenter;
+
+#[Presenter(CustomerPresenter::class)]
+class GetCustomerProfile extends VurbTool { }
+```
+
+### @Query, @Mutation, @Action — Verb attributes (alternative to subclass)
+
+```php
+use Vinkius\Vurb\Attributes\Query;
+
+#[Query]
+class GetCustomerProfile extends VurbTool { }
+// Equivalent to extending VurbQuery
+```
+
+### @Cached — State Sync caching
+
+```php
+use Vinkius\Vurb\Attributes\Cached;
+
+#[Cached]                    // cache forever (immutable)
+class GetCountries extends VurbQuery { }
+
+#[Cached(ttl: 120)]        // stale after 120 seconds
+class GetCustomerProfile extends VurbQuery { }
+```
+
+### @Stale — Always refetch
+
+```php
+use Vinkius\Vurb\Attributes\Stale;
+
+#[Stale]                     // never cache, always fresh
+class GetBalance extends VurbQuery { }
+```
+
+### @Invalidates — Mutation invalidation patterns
+
+```php
+use Vinkius\Vurb\Attributes\Invalidates;
+
+#[Invalidates('customers.*', 'reports.*')]
+class UpdateCustomer extends VurbMutation { }
+```
+
+### @FsmBind — FSM state restriction
+
+```php
+use Vinkius\Vurb\Attributes\FsmBind;
+
+#[FsmBind(states: ['confirmed'], event: 'PAY')]
+class ProcessPayment extends VurbMutation { }
+// Tool only visible when FSM is in 'confirmed' state.
+// On successful execution, triggers 'PAY' event → transitions FSM.
+```
+
+| Parameter | Type | Purpose |
+|---|---|---|
+| `states` | `array` | FSM states where tool is visible |
+| `event` | `?string` | Event to trigger on successful execution |
+
+### @Hidden — Exclude parameter from schema
+
+```php
+use Vinkius\Vurb\Attributes\Hidden;
+
+public function handle(
+    int $id,
+    #[Hidden] string $internalFlag = 'default',
+): array { }
+// 'internalFlag' is not visible to the LLM
+```
+
+### @AgentLimit — Truncation guardrails
+
+```php
+use Vinkius\Vurb\Attributes\AgentLimit;
+
+#[AgentLimit(max: 50, warningMessage: 'Use filters to narrow results.')]
+class ListCustomers extends VurbQuery { }
+```
+
+### @Concurrency — Max parallel executions
+
+```php
+use Vinkius\Vurb\Attributes\Concurrency;
+
+#[Concurrency(max: 3)]
+class ProcessPayment extends VurbMutation { }
+```
+
+## VurbPresenter — Egress Firewall & Perception Layer
+
+The Presenter extends Laravel's `JsonResource` and controls what data reaches the AI agent. Every Presenter has four layers:
+
+```php
+namespace App\Vurb\Presenters;
+
+use Vinkius\Vurb\Presenters\VurbPresenter;
+
+class CustomerPresenter extends VurbPresenter
+{
+    /**
+     * Egress Firewall — only these fields reach the AI.
+     */
+    public function toArray($request): array
+    {
+        return [
+            'id'   => $this->id,
+            'name' => $this->name,
+            'plan' => $this->plan,
+            // 'email' deliberately omitted — PII never reaches the LLM
+        ];
+    }
+
+    /**
+     * JIT System Rules — travel with data, not in the global prompt.
+     */
+    public function systemRules(): array
+    {
+        return [
+            'Never reveal the customer email address.',
+            'Always use the customer name in responses.',
+            'For billing questions, suggest the billing.get_invoice tool.',
+        ];
+    }
+
+    /**
+     * Server-rendered UI blocks — deterministic visualizations.
+     */
+    public function uiBlocks(): array
+    {
+        return [
+            ['type' => 'summary', 'title' => $this->name, 'subtitle' => "Plan: {$this->plan}"],
+        ];
+    }
+
+    /**
+     * Action affordances — HATEOAS for AI agents.
+     */
+    public function suggestActions(): array
+    {
+        return [
+            ['tool' => 'customers.update', 'reason' => 'Edit customer details'],
+            ['tool' => 'billing.get_invoice', 'reason' => 'View billing history'],
+        ];
+    }
+}
+```
+
+### Presenter Layers
+
+| Method | What It Does | Wire Format |
+|---|---|---|
+| `toArray($request)` | **Egress firewall** — only declared fields reach the AI | `data` in response |
+| `systemRules()` | **JIT context injection** — rules the LLM must follow for THIS response | `systemRules` array |
+| `uiBlocks()` | **Server-rendered UI** — charts, summaries, tables | `uiBlocks` array |
+| `suggestActions()` | **HATEOAS for AI** — what the agent should do next | `suggestActions` array |
+
+### Linking Presenter to Tool
+
+```php
+use Vinkius\Vurb\Attributes\Presenter;
+
+#[Presenter(CustomerPresenter::class)]
+class GetCustomerProfile extends VurbQuery
+{
+    public function handle(int $id): \App\Models\Customer
+    {
+        return \App\Models\Customer::findOrFail($id);
+        // ↑ Return the model — Presenter filters and enriches automatically
+    }
+}
+```
+
+## VurbRouter — Group & Namespace Tools
+
+Place a `Router.php` in a tools subdirectory. All tools in that directory inherit the router's prefix, middleware, and tags.
+
+```php
+namespace App\Vurb\Tools\Crm;
+
+use Vinkius\Vurb\Tools\VurbRouter;
+
+class Router extends VurbRouter
+{
+    public string $prefix = 'crm';
+    public string $description = 'CRM operations — leads, contacts, deals';
+    public array $middleware = [
+        \App\Vurb\Middleware\RequireCrmAccess::class,
+    ];
+}
+```
+
+### Router Properties
+
+| Property | Type | Purpose |
+|---|---|---|
+| `$prefix` | `string` | Namespace prefix (e.g., `'crm'` → `crm.get_lead`) |
+| `$description` | `string` | Description for the tool group |
+| `$middleware` | `array` | Middleware applied to ALL tools in the directory |
+
+## VurbMiddleware — Tool-Level Middleware
+
+Implement the `VurbMiddleware` interface. Context array contains `tool`, `input`, `request`, `user`.
+
+```php
+use Vinkius\Vurb\Middleware\VurbMiddleware;
+
+class RequireCrmAccess implements VurbMiddleware
+{
+    public function handle(array $context, \Closure $next): mixed
+    {
+        if (! $context['user']?->canAccessCrm()) {
+            return ['error' => true, 'code' => 'FORBIDDEN', 'message' => 'CRM access required.'];
+        }
+        return $next($context);
+    }
+}
+```
+
+### Three Middleware Layers (merged automatically)
+
+| Layer | Scope | Configuration |
+|---|---|---|
+| **Global** | All tools | `config('vurb.middleware')` array |
+| **Router** | Tools in directory | `VurbRouter::$middleware` |
+| **Per-tool** | Single tool | `VurbTool::$middleware` |
+
+### Built-in Middleware
+
+| Class | Purpose |
+|---|---|
+| `Vinkius\Vurb\Middleware\AuditTrail` | Logs tool name, input, user, latency, error status |
+| `Vinkius\Vurb\Middleware\RateLimitVurb` | 60 requests/minute per tool+user (uses Laravel RateLimiter) |
+| `Vinkius\Vurb\Middleware\RequirePermission` | Laravel Gate authorization with variadic permissions |
+
+## Eloquent Model Bridge — HasVurbSchema
+
+Add the `HasVurbSchema` trait to any Eloquent model to include it in the Schema Manifest. The `ModelBridge` extracts fields, types, casts, hidden attributes, fillable profiles, and custom descriptions.
+
+```php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Vinkius\Vurb\Models\Concerns\HasVurbSchema;
+
+class Customer extends Model
+{
+    use HasVurbSchema;
+
+    protected $hidden = ['password', 'remember_token'];
+
+    protected $casts = [
+        'plan' => PlanEnum::class,
+        'email_verified_at' => 'datetime',
+    ];
+
+    public array $vurbDescriptions = [
+        'name' => 'Full legal name of the customer',
+        'plan' => 'Subscription tier: free, pro, or enterprise',
+    ];
+}
+```
+
+### ModelRegistry
+
+Models are auto-discovered or manually registered:
+
+```php
+use Vinkius\Vurb\Models\ModelRegistry;
+
+$registry = app(ModelRegistry::class);
+$registry->register(\App\Models\Customer::class);
+$registry->register(\App\Models\Invoice::class, 'Invoice');  // custom alias
+$compiled = $registry->compileAll();  // all models compiled to manifest format
+```
+
+## FSM State Gate — Temporal Tool Governance
+
+Configure a finite state machine in `config/vurb.php`. Tools bound with `#[FsmBind]` are physically removed from the manifest when the FSM is not in the specified states.
+
+```php
+// config/vurb.php
+'fsm' => [
+    'id'      => 'order_flow',
+    'initial' => 'draft',
+    'store'   => 'cache',   // 'cache' or 'database'
+    'states'  => [
+        'draft'      => ['on' => ['CONFIRM' => 'confirmed']],
+        'confirmed'  => ['on' => ['PAY' => 'paid', 'CANCEL' => 'cancelled']],
+        'paid'       => ['on' => ['SHIP' => 'shipped']],
+        'shipped'    => ['on' => ['DELIVER' => 'delivered']],
+        'delivered'  => [],
+        'cancelled'  => [],
+    ],
+],
+```
+
+```php
+#[FsmBind(states: ['confirmed'], event: 'PAY')]
+class ProcessPayment extends VurbMutation
+{
+    // Only visible when FSM is in 'confirmed' state
+    // On success, triggers PAY → transitions to 'paid'
+}
+
+#[FsmBind(states: ['paid'], event: 'SHIP')]
+class ShipOrder extends VurbAction
+{
+    // Only visible after payment
+}
+```
+
+The AI cannot call `ProcessPayment` until the order is confirmed. The tool does not exist in the manifest until the FSM reaches the right state. This prevents hallucination-driven out-of-order operations.
+
+## DLP Redaction — PII Protection
+
+Configure regex patterns for automatic PII stripping from every tool response:
+
+```php
+// config/vurb.php
+'dlp' => [
+    'enabled'  => true,
+    'strategy' => 'mask',       // 'mask', 'remove', or 'hash'
+    'patterns' => [
+        '/\b\d{3}-\d{2}-\d{4}\b/'                           => 'SSN',
+        '/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/'     => 'credit_card',
+        '/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z]{2,}\b/i' => 'email',
+    ],
+],
+```
+
+Defense in depth: Presenter egress filtering + DLP pattern matching. Even if a tool developer forgets to filter in `toArray()`, the DLP engine catches it.
+
+## State Sync — Cache Epistemic Policies
+
+Control how the AI agent caches tool results:
+
+```php
+// config/vurb.php
+'state_sync' => [
+    'default'  => 'stale',                       // default: never cache
+    'policies' => [
+        'geo.*'       => ['policy' => 'cached'],  // reference data: forever
+        'billing.*'   => ['policy' => 'stale'],    // always fresh
+        'customers.*' => ['policy' => 'stale-after', 'ttl' => 120],
+    ],
+],
+```
+
+Inline per-tool via attributes: `#[Cached]`, `#[Cached(ttl: 120)]`, `#[Stale]`, `#[Invalidates('customers.*')]`.
+
+## Governance & Introspection
+
+### Contract Compiler
+
+Generates per-tool contracts with SHA-256 digests:
+
+```php
+use Vinkius\Vurb\Governance\ContractCompiler;
+
+$contracts = app(ContractCompiler::class)->compileContracts();
+// Returns: ['customers.get_profile' => ['name' => ..., 'verb' => ..., 'digest' => 'sha256:...']]
+```
+
+### Lockfile Generator
+
+CI gate for schema drift detection:
+
+```bash
+php artisan vurb:lock          # Generate vurb.lock
+php artisan vurb:lock --check  # Exit 0 if unchanged, exit 1 if drift
+```
+
+### Dynamic Manifest — RBAC Filtering
+
+```php
+// config/vurb.php
+'introspection' => [
+    'enabled' => true,
+    'filter'  => function (array $manifest, array $context) {
+        if (($context['role'] ?? 'viewer') !== 'admin') {
+            unset($manifest['tools']['billing']);
+        }
+        return $manifest;
+    },
+],
+```
+
+## Observability
+
+Zero configuration. If Telescope or Pulse is installed, tool executions are recorded automatically.
+
+| Integration | What's Recorded |
+|---|---|
+| **Telescope** (`VurbWatcher`) | Tool name, input, latency, presenter, rules, errors |
+| **Pulse** (`VurbRecorder`) | Tool execution count, avg latency per tool |
+| **Events** | `ToolExecuted`, `ToolFailed`, `DaemonStarted`, `DaemonStopped`, `ManifestCompiled`, `StateInvalidated` |
+
+## Testing — FakeVurbTester & MvaTestResult
+
+Runs the full tool pipeline in-process. No daemon, no HTTP.
+
+```php
+use Vinkius\Vurb\Testing\FakeVurbTester;
+
+$result = FakeVurbTester::for(GetCustomerProfile::class)
+    ->call(['id' => 42]);
+
+$result->assertSuccessful();
+$result->assertDataHasKey('name');
+$result->assertDataMissingKey('email');         // egress firewall assertion
+$result->assertDataEquals('name', 'Jane Doe');
+$result->assertHasSystemRule('Never reveal the customer email address.');
+$result->assertHasUiBlock('summary');
+$result->assertSuggestsTool('customers.update');
+```
+
+### MvaTestResult Assertions
+
+| Method | What It Validates |
+|---|---|
+| `assertSuccessful()` | No error occurred |
+| `assertIsError(?string $code)` | Error with optional code (`VALIDATION_ERROR`, `RATE_LIMITED`, `UNAUTHORIZED`, `FORBIDDEN`) |
+| `assertDataHasKey(string)` | Response contains key |
+| `assertDataMissingKey(string)` | Egress firewall — sensitive key NOT in response |
+| `assertDataEquals(string, mixed)` | Value equality check |
+| `assertHasSystemRule(string)` | JIT rule is present in response |
+| `assertHasSystemRules()` | Response has at least one system rule |
+| `assertHasUiBlocks()` | Response has at least one UI block |
+| `assertHasSuggestActions()` | Response has at least one suggested action |
+| `assertSuggestsTool(string)` | Specific tool is suggested |
+| `latency()` | Returns execution time in milliseconds |
+
+### Testing with Middleware
+
+```php
+$result = FakeVurbTester::for(GetLead::class)
+    ->withMiddleware([\App\Vurb\Middleware\RequireCrmAccess::class])
+    ->call(['id' => 1]);
+
+$result->assertIsError('FORBIDDEN');
+```
+
+## Artisan Commands
+
+| Command | Description |
+|---|---|
+| `vurb:install` | Setup: publish config, create dirs, npm install, generate token, run migrations |
+| `vurb:serve` | Compile manifest, start Vurb.ts daemon, monitor process |
+| `vurb:make-tool {Name}` | Generate tool scaffold (`--query`, `--mutation`, `--action`, `--router`) |
+| `vurb:make-presenter {Name}` | Generate Presenter scaffold (`--collection`) |
+| `vurb:manifest` | Compile and display Schema Manifest (`--json`, `--write`) |
+| `vurb:inspect` | Inspect tools, schemas, demo payloads (`--tool=`, `--schema`, `--demo`) |
+| `vurb:lock` | Generate `vurb.lock` for CI governance (`--check`) |
+| `vurb:health` | Check daemon, Node.js, bridge, tools health |
+
+## Bridge Protocol
+
+The daemon communicates with Laravel over HTTP at `/_vurb/*`:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/_vurb/execute/{toolName}/handle` | POST | Execute a tool |
+| `/_vurb/schema/refresh` | POST | Recompile Schema Manifest |
+| `/_vurb/state/transition` | POST | FSM state transition |
+| `/_vurb/health` | GET | Health check |
+
+All endpoints protected by `ValidateVurbToken` middleware (timing-safe `hash_equals`).
+
+### Response Format
+
+```json
+{
+  "data": { "id": 42, "name": "Jane Doe", "plan": "enterprise" },
+  "meta": { "request_id": "a1b2c3", "latency_ms": 12.34, "tool": "customers.get_profile" },
+  "systemRules": ["Never reveal the customer email address."],
+  "uiBlocks": [{ "type": "summary", "title": "Jane Doe" }],
+  "suggestActions": [{ "tool": "customers.update", "reason": "Edit details" }]
+}
+```
+
+### Schema Manifest
+
+```json
+{
+  "version": "1.0",
+  "server": { "name": "my-app", "version": "1.0.0" },
+  "bridge": { "baseUrl": "http://127.0.0.1:8000", "prefix": "/_vurb" },
+  "tools": {
+    "customers": [
+      {
+        "name": "customers.get_profile",
+        "description": "Retrieve a customer profile by ID.",
+        "inputSchema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"] },
+        "annotations": { "verb": "query", "readOnly": true },
+        "middleware": []
+      }
+    ]
+  },
+  "presenters": {},
+  "models": {},
+  "stateSync": { "default": "stale", "policies": {} },
+  "fsm": null,
+  "skills": []
+}
+```
+
+## Configuration Reference
+
+```php
+// config/vurb.php
+return [
+    'server' => [
+        'name'        => env('VURB_SERVER_NAME', env('APP_NAME', 'laravel')),
+        'version'     => env('VURB_SERVER_VERSION', '1.0.0'),
+        'description' => env('VURB_SERVER_DESCRIPTION', 'MCP Server powered by Laravel Vurb'),
+    ],
+
+    'internal_token' => env('VURB_INTERNAL_TOKEN'),
+
+    'tools' => [
+        'path'      => app_path('Vurb/Tools'),
+        'namespace' => 'App\\Vurb\\Tools',
+    ],
+
+    'exposition'  => 'flat',                              // 'flat' or 'grouped'
+    'transport'   => env('VURB_TRANSPORT', 'stdio'),      // 'stdio', 'sse', 'streamable-http'
+
+    'daemon' => [
+        'manifest_path' => storage_path('app/vurb/manifest.json'),
+        'node_path'     => env('VURB_NODE_PATH'),
+        'npx_path'      => env('VURB_NPX_PATH'),
+        'port'          => env('VURB_DAEMON_PORT'),
+    ],
+
+    'bridge' => [
+        'base_url' => env('VURB_BRIDGE_URL', 'http://127.0.0.1:8000'),
+        'prefix'   => '/_vurb',
+        'timeout'  => 30,
+    ],
+
+    'middleware' => [],
+
+    'state_sync' => [
+        'default'  => 'stale',
+        'policies' => [],
+    ],
+
+    'fsm' => null,
+
+    'introspection' => [
+        'enabled' => false,
+        'filter'  => null,
+    ],
+
+    'dlp' => [
+        'enabled'  => false,
+        'patterns' => [],
+        'strategy' => 'mask',
+    ],
+
+    'observability' => [
+        'telescope' => true,
+        'pulse'     => true,
+        'events'    => true,
+    ],
+];
+```
+
+## Facade API
+
+```php
+use Vinkius\Vurb\Facades\Vurb;
+
+Vurb::discover();           // All discovered tool instances
+Vurb::compileManifest();    // Compiled manifest array
+Vurb::isHealthy();          // Daemon health check (bool)
+Vurb::discovery();          // ToolDiscovery singleton
+Vurb::compiler();           // ManifestCompiler singleton
+Vurb::daemon();             // DaemonManager singleton
+Vurb::health();             // HealthCheck singleton
+Vurb::presenters();         // PresenterRegistry singleton
+Vurb::models();             // ModelRegistry singleton
+```
+
+## Skills Registry
+
+Discover and register SKILL.md files from `app/Vurb/Skills/`:
+
+```php
+use Vinkius\Vurb\Skills\SkillsRegistry;
+
+$skills = app(SkillsRegistry::class);
+$skills->discover();                    // Scan app/Vurb/Skills/ for SKILL.md files
+$skills->all();                         // All registered skills
+$skills->get('laravel-vurb-development'); // Get specific skill
+$skills->compileAll();                  // Compile for Schema Manifest
+```
+
+## Common Anti-Patterns — What NOT to Do
+
+### ❌ Returning raw data without a Presenter
+
+```php
+// WRONG — no egress firewall, email leaks to LLM
+public function handle(int $id): array {
+    return Customer::findOrFail($id)->toArray();
+}
+
+// CORRECT — Presenter strips undeclared fields
+#[Presenter(CustomerPresenter::class)]
+class GetCustomerProfile extends VurbQuery {
+    public function handle(int $id): Customer {
+        return Customer::findOrFail($id);
+    }
+}
+```
+
+### ❌ Putting rules in the global prompt
+
+```php
+// WRONG — rules in config, not attached to data
+// CORRECT — rules travel WITH the response via Presenter::systemRules()
+```
+
+### ❌ Using VurbTool when you know the verb
+
+```php
+// WRONG — generic tool, missing semantic annotations
+class GetBalance extends VurbTool {
+    public function verb(): string { return 'query'; }
+}
+
+// CORRECT — semantic subclass, readOnly auto-set
+class GetBalance extends VurbQuery { }
+```
+
+### ❌ Skipping #[Param] for non-obvious parameters
+
+```php
+// WRONG — LLM guesses what 'q' means
+public function handle(string $q, int $limit = 10): array { }
+
+// CORRECT — explicit description + example
+public function handle(
+    #[Param(description: 'Search query — name, email, or phone', example: 'jane@acme.com')]
+    string $query,
+    #[Param(description: 'Maximum results to return')]
+    int $limit = 10,
+): array { }
+```
+
+## Quick Reference
+
+| I want to... | Use |
+|---|---|
+| Create a read-only tool | Extend `VurbQuery` |
+| Create a write tool | Extend `VurbMutation` |
+| Create a neutral tool | Extend `VurbAction` |
+| Shape what the AI sees | Create `VurbPresenter`, link with `#[Presenter]` |
+| Group tools by domain | Create `VurbRouter` in subdirectory |
+| Add auth middleware | Implement `VurbMiddleware`, add to router or tool `$middleware` |
+| Expose an Eloquent model | Add `HasVurbSchema` trait |
+| Cache tool results | `#[Cached]` or `#[Cached(ttl: 120)]` |
+| Mark as volatile | `#[Stale]` |
+| Invalidate on mutation | `#[Invalidates('customers.*')]` |
+| Restrict to FSM state | `#[FsmBind(states: ['confirmed'], event: 'PAY')]` |
+| Redact PII | Enable `dlp.enabled` in config, add patterns |
+| Test full MVA pipeline | `FakeVurbTester::for(Tool::class)->call([...])` |
+| Generate lockfile | `php artisan vurb:lock` |
+| Check schema drift | `php artisan vurb:lock --check` |
+| Start MCP server | `php artisan vurb:serve` |
+| Scaffold a tool | `php artisan vurb:make-tool Name --query` |
+| Scaffold a presenter | `php artisan vurb:make-presenter Name` |

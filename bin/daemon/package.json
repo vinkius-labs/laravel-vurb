@@ -1,0 +1,19 @@
+{
+    "name": "@vinkius-labs/laravel-vurb-daemon",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Bridge daemon — reads Laravel's Schema Manifest and registers proxy tools in vurb-ts",
+    "main": "src/bridge.ts",
+    "scripts": {
+        "start": "tsx src/bridge.ts",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@vurb/core": "^3.7.0"
+    },
+    "devDependencies": {
+        "tsx": "^4.19.0",
+        "typescript": "^5.5.0"
+    }
+}

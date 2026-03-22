@@ -1,0 +1,31 @@
+<?php
+
+namespace {{ namespace }};
+
+use Illuminate\Database\Eloquent\Model;
+use Vinkius\Vurb\Models\Concerns\HasVurbSchema;
+
+class {{ class }} extends Model
+{
+    use HasVurbSchema;
+
+    /**
+     * Fields accessible to the AI agent per operation.
+     */
+    public static array $vurbFillable = [
+        'create' => [
+            // 'name', 'email',
+        ],
+        'update' => [
+            // 'name', 'email', 'status',
+        ],
+    ];
+
+    /**
+     * Human-readable descriptions for each field (for the AI agent).
+     */
+    public static array $vurbDescriptions = [
+        // 'name' => 'The full name of the entity.',
+        // 'status' => 'Current status (active, inactive, suspended).',
+    ];
+}

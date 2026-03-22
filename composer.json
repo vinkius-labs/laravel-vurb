@@ -1,0 +1,70 @@
+{
+    "name": "vinkius-labs/laravel-vurb",
+    "description": "Transform any Laravel application into a production-grade MCP Server — zero TypeScript required.",
+    "keywords": [
+        "laravel",
+        "mcp",
+        "vurb",
+        "ai",
+        "model-context-protocol",
+        "tools",
+        "agents"
+    ],
+    "homepage": "https://github.com/vinkius-labs/laravel-vurb",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Renato Marinho",
+            "email": "renato.marinho@vinkius.com",
+            "homepage": "https://github.com/vinkius-labs"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/vinkius-labs/laravel-vurb/issues",
+        "source": "https://github.com/vinkius-labs/laravel-vurb"
+    },
+    "require": {
+        "php": "^8.2",
+        "illuminate/contracts": "^11.0|^12.0|^13.0",
+        "illuminate/support": "^11.0|^12.0|^13.0",
+        "illuminate/console": "^11.0|^12.0|^13.0",
+        "illuminate/http": "^11.0|^12.0|^13.0",
+        "illuminate/routing": "^11.0|^12.0|^13.0",
+        "illuminate/database": "^11.0|^12.0|^13.0",
+        "illuminate/events": "^11.0|^12.0|^13.0",
+        "illuminate/cache": "^11.0|^12.0|^13.0",
+        "illuminate/filesystem": "^11.0|^12.0|^13.0",
+        "symfony/process": "^7.0|^8.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0|^10.0|^11.0",
+        "phpunit/phpunit": "^11.0|^12.0",
+        "laravel/telescope": "^5.0",
+        "laravel/pulse": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Vinkius\\Vurb\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Vinkius\\Vurb\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Vinkius\\Vurb\\VurbServiceProvider"
+            ],
+            "aliases": {
+                "Vurb": "Vinkius\\Vurb\\Facades\\Vurb"
+            }
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
